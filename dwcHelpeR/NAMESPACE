@@ -1,0 +1,8 @@
+exportPattern("^[[:alpha:]]+")
+import(data.table)
+import(dplyr)
+import(uuid)
+import(digest)
+import(httr)
+import(xml2)
+import(stringdist)

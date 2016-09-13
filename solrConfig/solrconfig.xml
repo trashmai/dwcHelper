@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<config>
+
+  ...
+
+  <requestHandler name="/select" class="solr.SearchHandler">
+    <!-- default values for query parameters can be specified, these
+         will be overridden by parameters in the request
+      -->
+     <lst name="defaults">
+       <str name="echoParams">explicit</str>
+       <int name="rows">10</int>
+       <str name="df">text</str>
+
+       <str name="spellcheck">on</str>
+       <str name="spellcheck.dictionary">dwcTerm</str>
+       <str name="spellcheck.collate">true</str>
+     </lst>
+
+    <arr name="last-components">
+      <str>spellcheck</str>
+    </arr>
+  </requestHandler>
+  
+  ...
+
+  <!-- for back compat with clients using /update/json and /update/csv -->
+  <requestHandler name="/update/json" class="solr.UpdateRequestHandler">
+        <lst name="defaults">
+         <str name="stream.contentType">application/json</str>
+       </lst>
+  </requestHandler>
+
+  ...
+  
+  <searchComponent name="spellcheck" class="solr.SpellCheckComponent">
+
+    <str name="queryAnalyzerFieldType">text_dwc</str>
+
+    <!-- a spellchecker built from a field of the main index -->
+    <lst name="spellchecker">
+      <str name="name">dwcTerm</str>
+      <str name="field">desc</str>
+      <str name="classname">solr.DirectSolrSpellChecker</str>
+      <!-- the spellcheck distance measure used, the default is the internal levenshtein -->
+      <str name="distanceMeasure">org.apache.lucene.search.spell.LuceneLevenshteinDistance</str>
+      <!-- minimum accuracy needed to be considered a valid spellcheck suggestion -->
+      <float name="accuracy">0.5</float>
+      <!-- the maximum #edits we consider when enumerating terms: can be 1 or 2 -->
+      <int name="maxEdits">2</int>
+      <!-- the minimum shared prefix when enumerating terms -->
+      <int name="minPrefix">0</int>
+      <!-- maximum number of inspections per result. -->
+      <int name="maxInspections">5</int>
+      <!-- minimum length of a query term to be considered for correction -->
+      <int name="minQueryLength">4</int>
+      <!-- maximum threshold of documents a query term can appear to be considered for correction -->
+      <float name="maxQueryFrequency">0.99</float>
+      <!-- uncomment this to require suggestions to occur in 1% of the documents
+        <float name="thresholdTokenFrequency">.01</float>
+      -->
+    </lst>
+
+  </searchComponent>
+  
+  
+  
+</config>
