@@ -1,4 +1,4 @@
 # dwcHelper
 Darwin Core Helper
 
-dwcHelper helps your data to meet Darwin Core standard. 
+dwcHelper helps your data meet Darwin Core standard. 
