@@ -125,17 +125,26 @@ similarTest = function () {
     "specificEpithet" %in% similarDwcTerms('species')$terms == T,
     "infraspecificEpithet" %in% similarDwcTerms('var')$terms == T,
     "infraspecificEpithet" %in% similarDwcTerms('subsp')$terms == T,
-    "individualCount" %in% similarDwcTerms('count')$terms == T
+    "individualCount" %in% similarDwcTerms('count')$terms == T,
+    "higherGeography" %in% similarDwcTerms('region')$terms == T,
+    "higherGeography" %in% similarDwcTerms('region', v='Event')$terms == T,
+    "geodeticDatum" %in% similarDwcTerms('coordSystem')$terms == T,
+    "geodeticDatum" %in% similarDwcTerms('coordSystem', v='Occurrence')$terms == T,
+    "samplingProtocol" %in% similarDwcTerms('sampleMethod')$terms == T,
+    "samplingProtocol" %in% similarDwcTerms('eventProtocol')$terms == T,
+    "geodeticDatum" %in% similarDwcTerms('coordSys')$terms == T,
+    "latitude" %in% similarDwcTerms('south')$terms == T,
+    "latitude" %in% similarDwcTerms('north')$terms == T
 
   )
 }
 
 
 ## List the top N similar terms
-similarDwcTerms = function (col, num = 10, v='*') {
+similarDwcTerms = function (col, v='*', num=10, verbatim = F) {
 
   # Using solr index of DwC Terms to implement this function
-  urlTpl = "http://twebi.net/solr/dwc/select?q=desc:%s&mlt=true&mlt.fl=desc&mlt.mintf=1&mlt.count=%d&mlt.boost=true&fq=vocab:%s&fl=vocab,term,desc_orig_s"
+  urlTpl = "http://twebi.net/solr/dwc/select?q=desc:%s&mlt=true&mlt.fl=desc&mlt.mintf=1&mlt.count=%d&mlt.boost=true&fq=vocab:%s&fl=vocab,term,desc_orig_s&rows=50"
   url = sprintf(urlTpl, col, num, v)
   html = read_html(GET(url))
 
@@ -172,6 +181,8 @@ similarDwcTerms = function (col, num = 10, v='*') {
     match = match[vocab==v]
     suggest = suggest[vocab==v]
   }
+  #suggest = suggest[-grep(x = term, pattern = '^verbatim')]
+  #suggest = suggest[-grep(x = term, pattern = 'Unstructured$')]
 
   if (nrow(match) == 0 & nrow(suggest) ==0) {
     # terrible fallback
@@ -180,40 +191,48 @@ similarDwcTerms = function (col, num = 10, v='*') {
     }
     print("No match, fallback!")
 
-
     match = dwcVocabTerms[, c('vocab', 'term', 'desc'), with=F]
     match[, dist:=stringdist(tolower(col), vtolower(dwcVocabTerms$term), method='dl') / nchar(dwcVocabTerms$term)][, vt := paste0(vocab, ':', term)]
     match = unique(match[order(dist)])
     q = match[1, 'term', with=F][[1]]
     print(paste0("Try \"", q, "\"..."))
-    sim = similarDwcTerms(as.character(q), num)
+    sim = similarDwcTerms(as.character(q), v, num)
 
     if (v %in% dwcVocabTerms$vocab) {
       sim$match = sim$match[vocab==v]
       sim$suggest = sim$suggest[vocab==v]
     }
-    sim$terms = as.vector(unlist(unique(sim$suggest$term)[c(1:10)]))
-    sim
+    #sim$suggest = sim$suggest[-grep(x = term, pattern = '^verbatim')]
+    #sim$suggest = sim$suggest[-grep(x = term, pattern = 'Unstructured$')]
+    sim.terms = as.vector(unlist(unique(sim$suggest$term)[c(1:num)]))
+
   } else {
 
-    unsorted_terms = unique(suggest[, c('dist', 'term'), with=F])
-    unsorted_terms[, o:=.I]
-    #print(unsorted_terms)
-
-    w = 5
-    sorted_terms = unsorted_terms[order(dist), c('o', 'term'), with=F]
-    sorted_terms[, w_pos:=(.I + o * w)]
-
-    #print(sorted_terms[order(w_pos), 'term', with=F])
-
-    # sorted preferred
-    #if (sort == T) {
-    #  list(match = unique(match[order(dist)]), suggest = unique(suggest[order(dist)]), terms = unique(suggest[order(dist), 'term', with=F])[c(1:10)])
-    #} else {
-      # unsorted
-      list(match = unique(match), suggest = unique(suggest), terms = as.vector(unlist(sorted_terms[order(w_pos), 'term', with=F][c(1:10)])))
-    #}
+    sim = list(match = unique(match), suggest = unique(suggest))
   }
+
+  if (verbatim != T) {
+    verbatim_patterned = grep(x = sim$suggest$term, pattern = '^verbatim')
+    if (!identical(verbatim_patterned, integer(0))) {
+      sim$suggest = sim$suggest[-verbatim_patterned]
+    }
+    unstructured_patterned = grep(x = sim$suggest$term, pattern = 'Unstructured$')
+    if (!identical(unstructured_patterned, integer(0))) {
+      sim$suggest = sim$suggest[-unstructured_patterned]
+    }
+  }
+
+  unsorted_terms = unique(sim$suggest[, c('dist', 'term'), with=F])
+  unsorted_terms[, o:=.I]
+  #print(unsorted_terms)
+
+  w = 5
+  sorted_terms = unsorted_terms[order(dist), c('o', 'term'), with=F]
+  sorted_terms[, w_pos:=(.I + o * w)]
+
+  sim$terms = as.vector(unlist(sorted_terms[order(w_pos), 'term', with=F][c(1:num)]))
+
+  sim
 
 }
 
@@ -274,12 +293,24 @@ betterColMapping = function (cols, vocab='*') {
     x
 }
 
+getMappingFromFile = function (filename, ...) {
+  map_tmp = fread(input = filename, ...)
+  map = as.data.table(t(map_tmp))
+  names(map) <- c('old', 'new')
+  map[is.na(new), new := old]
+  map
+}
 
-describeDwc = function (t) {
+
+
+describeDwc = function (t, v = '*', verbatim = T) {
+
+  use.verbatim = verbatim
+
   if (!exists('dwcVocabTerms')) {
     getDwcAllTerms()
   }
-  sim = similarDwcTerms(t)
+  sim = similarDwcTerms(t, v, verbatim = use.verbatim)
 
   vocab = as.vector(unlist(dwcVocabTerms[term==t, 'vocab', with=F]))
   desc = as.vector(unlist(dwcVocabTerms[term==t, 'desc', with=F]))
@@ -291,11 +322,16 @@ describeDwc = function (t) {
     desc = as.vector(unlist(dwcVocabTerms[term==t, 'desc', with=F]))
   }
 
-  list(
-    vocab = vocab,
-    desc = desc,
-    related = head(unique(sim$suggest$vt), 10)
-  )
+  desc = setNames(desc, vocab)
+  desc = as.list(desc)
+  desc$related = head(sim$terms, 20)
+  desc
+
+  #list(
+  #  vocab = vocab,
+  #  desc = desc,
+  #  related = head(unique(sim$suggest$vt), 10)
+  #)
 }
 
 
@@ -401,12 +437,12 @@ getDwcTerms = function(dwc_type, desc = F){
 #)
 
 
-renameSubset = function (dt, wanted, mapped, map_df = NULL) {
+renameSubset = function (dt, wanted, mapped, map_dt = NULL) {
 
-  if (!is.null(map_df)) {
-    if (is.data.table(map_df)) {
-      wanted = map_df$old
-      mapped = map_df$new
+  if (!is.null(map_dt)) {
+    if (is.data.table(map_dt)) {
+      wanted = map_dt$old
+      mapped = map_dt$new
     }
   }
 
@@ -423,6 +459,7 @@ renameSubset = function (dt, wanted, mapped, map_df = NULL) {
 
 getDwcTable = function (dt_name, vocab, ext='o', ...) {
 
+  vocab = as.vector(unlist(vocab))
   argg <- c(as.list(environment()), list(...))
 
   if (!is.character(dt_name)) {
@@ -510,7 +547,8 @@ getIDVars = function (dt) {
   eventSpecialVarPattern = getSpecialVarPattern()
   idVars = append(
     intersect(
-      Reduce(c, list(dwcOccurrenceTerms, dwcMeasurementOrFactTerms, dwcEventTerms)),
+      #Reduce(c, list(dwcOccurrenceTerms, dwcMeasurementOrFactTerms, dwcEventTerms)),
+      dwcVocabTerms$term,
       colnames(dt)
     ),
     grep(colnames(dt), pattern = eventSpecialVarPattern, value = T)
@@ -568,12 +606,12 @@ makeMeasurementTpl = function (dt_orig, measVars = NA, ...) {
   eventSpecialVarPattern = getSpecialVarPattern()
 
   meas_meta_suffix = c(
-    'DetBy',
-    'MeasUnit',
-    'MeasAcc',
-    'DetDate',
-    'MeasMethod',
-    'MeasRemarks'
+    '_detBy',
+    '_unit',
+    '_accuracy',
+    '_detDate',
+    '_method',
+    '_remarks'
   )
 
   meas_meta_full = c(
@@ -609,7 +647,7 @@ makeMeasurementTpl = function (dt_orig, measVars = NA, ...) {
     assign(x = 'tpl', value = data.frame(append(tpl, tpl.list, after=match(mv, names(tpl)))), envir = parent.env(environment()))
   }))
 
-  tpl
+  as.data.table(tpl)
 
 }
 
@@ -621,12 +659,12 @@ makeMeasurement = function (dt_orig, measVars = NA, ...) {
   eventSpecialVarPattern = getSpecialVarPattern()
 
   meas_meta_suffix = c(
-    'DetBy',
-    'MeasUnit',
-    'MeasAcc',
-    'DetDate',
-    'MeasMethod',
-    'MeasRemarks'
+    '_detBy',
+    '_unit',
+    '_accuracy',
+    '_detDate',
+    '_method',
+    '_remarks'
   )
 
   meas_meta_full = c(
@@ -639,6 +677,12 @@ makeMeasurement = function (dt_orig, measVars = NA, ...) {
   )
 
   idVars = getIDVars(dt)
+  if (!is.na(measVars)) {
+    #idVars = setdiff(colnames(dt), measVars)
+  }
+  else {
+    measVars = setdiff(colnames(dt), idVars)
+  }
   #append(
   #    intersect(
   #        Reduce(c, list(dwcOccurrenceTerms, dwcMeasurementOrFactTerms, dwcEventTerms)),
@@ -649,18 +693,16 @@ makeMeasurement = function (dt_orig, measVars = NA, ...) {
 
   dt_nrow = nrow(dt)
 
-  if (is.na(measVars)) {
-    measVars = setdiff(colnames(dt), idVars)
-  }
 
   dt = melt.data.table (
     dt,
-    id.vars = idVars,
+    #id.vars = idVars,
     measure.vars = measVars,
     variable.name = "measurementType",
     value.name = "measurementValue"
   )
 
+  View(dt)
   #invisible(dt[, detBy:=paste0(measurementType, "DetBy")][, measUnit:=paste0(measurementType, "MeasUnit")])
 
 
@@ -691,7 +733,10 @@ makeMeasurement = function (dt_orig, measVars = NA, ...) {
   colnames(qq) <- meas_meta_full
   dt = cbind(dt, qq)
 
-  meas = dt[, .SD, .SDcols = intersect(dwcMeasurementOrFactTerms, colnames(dt))]
+
+  dwcMeasurementOrFactTerms = as.vector(unlist(getDwcTerms('MeasurementOrFact')))
+  meas = dt[, .SD, .SDcols = intersect(append(idVars, dwcMeasurementOrFactTerms), colnames(dt))]
+  print(names(meas))
   meas[, measurementIDMaterial := paste0('meas_',make.names(measurementType))]
 
   meas_names = colnames(meas)

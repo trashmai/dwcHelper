@@ -1,0 +1,2 @@
+SITE.CODE,SITE,SITE.LAT,SITE.LONG,COUNTRY,ECO.REGION,SURVEY.DATE,SURVEY.ID,DEPTH,WATER.TEMPERATURE.F,pH,SALINITY.parts.per.1000
+locationID,locality,decimalLatitude,decimalLongitude,country,higherGeography,eventDate,eventID,minimumDepthInMeters,,,
